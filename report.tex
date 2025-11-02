@@ -1,0 +1,102 @@
+\documentclass[a4paper,12pt]{article}
+
+
+\title{Bit Packing Compression Module in Python}
+\author{Kyllian Pham}
+\date{\today}
+
+\begin{document}
+\maketitle
+\newpage
+
+\section{Objectifs}
+L'objectif de cette librairie est de transformer un tableau d'entiers en un tableau plus petit
+d'entiers, en représentant les entiers initiaux sous forme de bits. Cette compression doit se faire
+tout en conservant l'accès aux entiers d'origine.
+
+\subsection{Les règles}
+Deux méthodes sont implémentées afin de compresser le tableau d'entiers.
+
+La première permet à la représentation en bits d'un entier de s'inscrire sur plusieurs entiers
+(chaque entier représentant 32 bits). Cette méthode sera nommée ``crossing''.  
+
+La seconde ne permet pas à une représentation en bits d'un entier d'être coupée. Elle sera
+nommée ``nocrossing''.  
+
+Un nombre de bits optimal doit être calculé pour obtenir le meilleur ratio de compression.  
+Les entiers dépassant ce nombre sont ajoutés à la fin du tableau compressé, et seule leur
+position est représentée dans le reste du tableau compressé.
+
+\subsection{Nomenclature}
+\begin{itemize}
+    \item \textbf{Nombre de bits idéal} : C'est le nombre qui sera utilisé pour inscrire la majorité des mots du tableau. Ce nombre sera également noté \textbf{\textit{k}}
+    \item \textbf{Phrase} : l'ensemble des bits qui forment les entiers. Collé les uns aux autres ils forment une phrase
+    \item \textbf{Mot} : les mots sont les morceaux de chaines de caractères de 32 bits qui composent la phrase
+    \item \textbf{Overflow} : ce sont les nombres qui s'écrivent sur un nombre de bit supérieur au nombre idéal calculé
+    \item \textbf{Crossing / nocrossing} : détermine la méthode choisie pour construire la phrase et les mots lors de la compression / décompression
+    \item \textbf{Meta} : détermine des caractères prédéfinis d'avance permettant d'obtenir des informations conernant la compression / décompression
+    \item \textbf{Nombre de bit maximum} : C'est le nombre de bit maximum représentant l'entier le plus grand du tableau. Tous les \textit{overflows} seront écrits avec ce nombre de bits.
+    \item \textbf{Suffix} : C'est la liste des overflows qui seront ajoutés à la fin de la phrase
+\end{itemize}
+
+\subsection{Benchmarks}
+Le but est également de mesurer les performances de la compression et de la décompression en
+calculant simplement le temps que prennent ces deux actions. Cela permet d'évaluer l'intérêt
+de la compression en fonction de la bande passante et de la latence réseau.
+Les benchmarks suivant ont été implémentés :
+\begin{itemize}
+    \item find_best_bit_length : le temps total mis pour calculer le \textit{nombre de bits idéal}
+    \item read_meta : le temps total mis pour lire les \textit{meta}
+    \item writing_meta : le temps total mis pour écrire les \textit{meta}
+    \item overflow_list : le temps total mis pour extraire la liste d'\textit{overflow}
+    \item compression : le temps total mis pour compresser le tableau
+    \item decompression : le temps total mis pour décompresser le tableau
+    \item reading_int : le temps total mis pour lire un entier (méthode nocrossing uniquement)
+    \item reading_overflow : le temps total mis pour lire un \textit{overflow} (méthode nocrossing uniquement)
+\end{itemize}
+
+\section{Implémentation}
+
+\subsection{Calcul du \textit{nombre de bits idéa}l}
+Dans un premier temps, nous calculons le \textit{nombre de bits idéal} pour écrire l'ensemble des \textit{mots}.
+Pour cela, une fonction calcule le nombre de bits total que prendraient le tableau compressé.
+On choisit alors le minimum possible, tout en s'assurant que le nombre de bits n'est pas inférieur au
+nombre total d'\textit{overflows}  (sinon il serait impossible d'écrire leur position dabs la suite).
+
+\subsection{Création des \textit{Meta}}
+Cette chaîne de bits contient les informations nécessaires pour lire le tableau compressé et / ou compresser le contenu initiale. Elle contient :
+\begin{itemize}
+    \item le nombre total d'éléments inscrits (sur 32 bits),
+    \item le \textit{nombre de bits idéal} pour inscrire l'ensemble des nombres (sur 6 bits),
+    \item le nombre maximum de bits utilisés pour inscrire les \textbf{overflow} (également sur 6 bits),
+    \item le nombre total d'\textit{overflow} (sur 32 bits).
+\end{itemize}
+
+\subsection{Création de la liste d'\textit{overflow}}
+Afin d'optimiser au maximum, les overflow sont listés pour n'être représenté qu'une seule et unique fois. De cette manière nous optimisons le nombre de mot inscrit et permettons de gagner en longueur totale.
+
+\subsection{Compression des entiers : méthode dite \textit{crossing}}
+Lors de la compression, on ajoute à la suite des \textit{meta} l'ensemble des entiers présent dans le tableau initial. Si l'entier peut être écrit avec le nombre de bit idéal, on inscrit un 0 puis les \textit{k} bits le représentant. Si le nombre de bits dépasse le \textit{nombre de bits idéal}, on ajoute le mot écrit avec le nombre de bit maximum à la fin et on notre sa position dans le \textit{suffix}. De cette manière, il sera simple de le retrouver par la suite.
+
+On forme enfin la \textit{phrase} qui contient l'ensemble des mots et on s'assure d'avoir un multiple de 32 en ajoutant des zero à la fin. On forme ensuite les \textit{mots} que l'on convertit enfin en entiers qui formeront alors le tableau définitif compressé.
+
+\subsection{Compression des entiers: méthode dite \textit{nocrossing}}
+Dans le cadre de la compression n'autorisant pas les \textit{crossing}, un marqueur est ajouté pour
+indiquer le début d'un nombre et permettre ainsi le remplissage par des 0 des \textit{mots}. On va ici fonctionner par \textit{mot} de 32 bits en ajoutant les zero nécessaire afin que chaque entier soit entièrement écrit dans un seul \textit{mot}. Cela oblige d'avoir des entiers écrit sur un maximum de 30 bits.
+
+Le reste du principe reste le même que pour la méthode dite \textit{crossing}.
+
+\subsection{Récupératin d'un entier : méthode dite \textit{crossing}}
+Cette récupération se fait simplement puisque l'on connait le nombre total de mot ainsi que \textit{le nombre idéal de bits}, qui sont des informations présentes dans les \textit{meta}. Il suffit alors d'aller lire la \textit{phrase} reconstituée et d'en extraire les bits puis de les convertir en entiers. Si le nombre est \textit{overflow} on va chercher l'entier dans la liste des \textit{overflow} à partir de la position obtenue.
+
+\subsection(Récupération d'un entier : méthode dite \textit{nocrossing}
+Cette partie est plus complexe car nous ne pouvons pas connaitre la position précise de chaque entier dans la mesure où les \textit{mots} sont comblés avec des 0. Nous devons alors parcourir l'ensemble de la \textit{phrase} bit par bit pour pouvoir déterminer les nombres que nous recherchons.
+
+\section{Conclusion}
+La compression fonctionne efficacement sur des tableaux dont les entiers sont de taille modérée. Au-delà d'un certain
+seuil, le nombre total de bits devient important et le gain en compression diminue.
+Le système \textit{nocrossing} est, quant à lui, moins performant que le système \textit{crossing}.
+
+Grâce aux benchmarks recensés par le programme, nous pouvons étudier si l'impact de la compression sur l'envoi d'un tableau d'entier est efficace ou non. Pour cela, nous prenons une bande passante, ajoutons de la latence et nous calculons ensuite le temps que mettrait el tableau initial à être envoyé et enfin le temps que mettrais le tableau compressé. On ajoute à cela le temps de compression total et on obtient alors une valeur que l'on peu utiliser pour détermier l'efficacité de la compression et son intérêt.
+
+\end{document}

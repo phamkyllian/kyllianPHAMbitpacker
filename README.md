@@ -4,7 +4,7 @@
 
 ### Installer
 ```python
-git clone {repository}
+git clone {https://github.com/phamkyllian/kyllianPHAMbitpacker.git}
 ```
 ### Utiliser
 
